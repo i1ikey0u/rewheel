@@ -4,7 +4,7 @@
 #code by shuichon
 
 '''
-V2.0，
+V2.1
 '''
 
 import argparse, sys, re, os
@@ -50,6 +50,7 @@ def get_ips(domain):
 	hisaddr = div.find_all('a', target="_blank")
 	for ha in hisaddr:
 		print(ha.string)
+	print('ip138 IP Done!')
 
 # OK ip138接口 查询子域名
 def subd_fm_ip138(target):
@@ -73,15 +74,23 @@ def subd_fm_ip138(target):
 		else:
 			cantrsvr.add(sd.string)
 			# print(sd.string)
-	wf("canrsvr.txt", canrsvr)
-	wf("cantrsvr.txt", cantrsvr)
+	wf("canrsvr.txt", '\n'.join(canrsvr))
+	wf("cantrsvr.txt", '\n'.join(cantrsvr))
+	print('ip138 done!')
+
 
 # OK 站长之家接口
 def subd_fm_chinaz(target):
 	url = "http://tool.chinaz.com/subdomain?domain=" + str(target)
-	page = request.urlopen(url).read().decode('utf-8')
+	req = request.urlopen(url)
+	if req.code != 200:
+		return (req.code)
+	page = req.read().decode('utf-8')
 	soup = BeautifulSoup(page, "html.parser")
 	ul = soup.find("ul", class_="ResultListWrap")
+	if ul is None:
+		print("没有查询到相关的子域名")
+		return None
 	us = ul.find_all("a")
 	for a in us:
 		print(a.string)
@@ -91,19 +100,22 @@ def subd_fm_chinaz(target):
 			cantrsvr.add(a.string)
 	wf("canrsvr.txt", '\n'.join(canrsvr))
 	wf("cantrsvr.txt", '\n'.join(cantrsvr))
-
+	print('Chinaz Done!')
 
 # OK virustotal接口
 def subd_fm_vt(target):
 	url = "https://www.virustotal.com/ui/domains/" + str(target) + "/subdomains"
 	url2 = "https://www.virustotal.com/ui/domains/" + str(target) + "/subdomains?cursor=STEwCi4%3D"
 	print(url)
-	page = request.urlopen(url).read().decode('utf-8')
+	req = request.urlopen(url)
+	if req.code != 200:
+		return (req.code)
+	page = req.read().decode('utf-8')
 	# print(page)
 	pg = json.loads(page, encoding='utf-8')
 	# print(pg)
 	for i in range(len(pg["data"])):
-		print("打印前10个子域名：")
+		# print("打印前10个子域名：")
 		sb = pg["data"][i]['id']
 		# print(sb)
 		if chk_alive(sb):
@@ -111,11 +123,15 @@ def subd_fm_vt(target):
 		else:
 			cantrsvr.add(sb)
 
-	page2 = request.urlopen(url2).read().decode('utf-8')
+	req = request.urlopen(url2)
+	if req.code != 200:
+		return (req.code)
+	page2 = req.read().decode('utf-8')
 	pg2 = json.loads(page2, encoding='utf-8')
-	for i in range(len(pg["data"])):
-		print("打印剩余子域名：")
-		print(pg2["data"][i]['id'])
+	# print(len(pg2["data"]))
+	for i in range(len(pg2["data"])):
+		# print("打印剩余子域名：")
+		# print(pg2["data"][i]['id'])
 		sb = pg2["data"][i]['id']
 		if chk_alive(sb):
 			canrsvr.add(sb)
@@ -124,7 +140,7 @@ def subd_fm_vt(target):
 
 	wf("canrsvr.txt", '\n'.join(canrsvr))
 	wf("cantrsvr.txt", '\n'.join(cantrsvr))
-
+	print('Virustotal Done!')
 
 
 # #谷歌透明度查询 需要翻墙，暂时没做。
@@ -133,7 +149,7 @@ def subd_fm_gtr(target):
 
 
 # #threatcrowd威胁情报接口,
-# 需要解决CloudFlare DDOS防护
+# TODO 需要解决CloudFlare DDOS防护
 def subd_fm_tc(target):
 	url = "https://disqus.com/api/3.0/discovery/listTopPost.json?thread=6100104160&thread=6101359458&thread=6176664485&thread=6178793347&thread=6198134280&thread=6203325891&thread=6273540066&thread=6427423066&api_key=E8Uh5l5fHZ6gD8U3KycjAIAk46f68Zw7C6eW8WSjZvCLXebZ7p0r1yrYDrLilk2F"
 	url2 = "https://www.threatcrowd.org/searchApi/v2/domain/report/?domain=" + str(target)
@@ -147,12 +163,13 @@ def subd_fm_tc(target):
 
 
 # OK 使用dnsdb.org接口进行查询，只能获取10个内的子域名
-#TODO 使用遍历的方法进行收集。
 def subd_fm_dnsdb(target):
+	print('dnsdb.org')
 	url = "https://www.robtex.com/dns-lookup/" + str(target)
 	req = request.Request(url, headers=hd)
 	respn = request.urlopen(req)
-	print(respn.code)
+	if respn.code != 200:
+		return (respn.code)
 	page = respn.read().decode("utf-8")
 	# print(page)
 	soup = BeautifulSoup(page, "html.parser")
@@ -179,16 +196,20 @@ def subd_fm_dnsdb(target):
 def subd_fm_censys(target):
 	url = 'https://censys.io/certificates?q=' + str(target)
 	url2 = 'https://censys.io/certificates?q=tags%3A%20trusted%20and%20parsed.names%3A%20' + str(target)
-	page = request.urlopen(url2).read().decode('utf-8')
-	print(page)
+	# page = request.urlopen(url2).read().decode('utf-8')
+	# print(page)
+	req = request.urlopen(url2)
+	if req.code != 200:
+		return (req.code)
+	page = req.read().decode('utf-8')
 	soup = BeautifulSoup(page, 'html.parser')
 	# div = soup.find_all('div', id="resultset", class_="results")
 	sdiv = soup.find_all('div', class_="results-metadata")
-	print(len(sdiv))
+	# print(len(sdiv))
 	for d in sdiv:
 		sbi = d.find_all('span')
-		print(sbi[3])
 		sb = sbi[3]
+		# print(sb)
 		if chk_alive(sb):
 			canrsvr.add(sb)
 		else:
@@ -196,11 +217,13 @@ def subd_fm_censys(target):
 
 	wf("canrsvr.txt", '\n'.join(canrsvr))
 	wf("cantrsvr.txt", '\n'.join(cantrsvr))
+	print('Censys Done!')
 
 
 
 # OK netcraft接口，最多返回500个
 def subd_fm_netcraft(target):
+	print('netcraft')
 	rs = []
 	url = 'https://searchdns.netcraft.com/?restriction=site+contains&host=' + str(target)
 	req = request.Request(url, headers=hd)
@@ -211,7 +234,6 @@ def subd_fm_netcraft(target):
 	# print(num.string)
 	l = re.compile('\d{1,9}').findall(num.string)
 	# print(l)
-
 	tbl = soup.find('table', class_="TBtable")
 	# print(len(tb))
 	td = tbl.find_all('a', rel='nofollow')
@@ -242,6 +264,7 @@ def subd_fm_netcraft(target):
 
 	wf("canrsvr.txt", '\n'.join(canrsvr))
 	wf("cantrsvr.txt", '\n'.join(cantrsvr))
+	print('Netcraft Done!')
 
 
 
@@ -271,6 +294,7 @@ def subd_fm_crtsh(target):
 			cantrsvr.add(sb)
 	wf("canrsvr.txt", '\n'.join(canrsvr))
 	wf("cantrsvr.txt", '\n'.join(cantrsvr))
+	print('Crt.sh Done!')
 
 
 
@@ -310,14 +334,13 @@ def subd_fm_dnsdumpster(target):
 	# print(page2)
 
 	soup = BeautifulSoup(page2, 'html.parser')
-	# div = soup.find('div', class_="table-responsive", style="text-align: left;")
+	div = soup.find_all('div', class_="table-responsive", style="text-align: left;")
 	# print(len(div))
-	sbd = soup.find_all('td', class_="col-md-4")
+	sbd = div[3].find_all('td', class_="col-md-4")
 	# print(len(sbd))
 	for s in sbd:
-		# print(s.text)
-		# res.add(s.text)
-		sb = s.text
+		sb = s.text.replace('\n', '')
+		print(sb)
 		if chk_alive(sb):
 			canrsvr.add(sb)
 		else:
@@ -326,11 +349,11 @@ def subd_fm_dnsdumpster(target):
 	wf("canrsvr.txt", '\n'.join(canrsvr))
 	wf("cantrsvr.txt", '\n'.join(cantrsvr))
 
-
 	# print(res)
 	# IP信息
 	# ips = sbd = soup.find_all('td', class_="col-md-3")
 	# print(len(ips))
+	print('Dnsdumpster Done!')
 
 
 
@@ -365,17 +388,20 @@ def brp_fm_dnsdb(target):
 		for sb in sbs:
 			# print(sb.string)
 			# res.add(sb)
-			if chk_alive(sb):
-				canrsvr.add(sb)
+			if chk_alive(sb.string):
+				canrsvr.add(sb.string)
 			else:
-				cantrsvr.add(sb)
+				cantrsvr.add(sb.string)
+	# print(canrsvr, cantrsvr)
 	wf("canrsvr.txt", '\n'.join(canrsvr))
 	wf("cantrsvr.txt", '\n'.join(cantrsvr))
 
 	for i in range(97, 123):
 		url2 = url + chr(i)
+		print(url2)
 		req = request.Request(url2, headers=hd)
 		respn = request.urlopen(req)
+		print(respn.code)
 		page = respn.read().decode("utf-8")
 		# print(page)
 		soup = BeautifulSoup(page, "html.parser")
@@ -383,10 +409,10 @@ def brp_fm_dnsdb(target):
 		for sb in sbs:
 			# print(sb.string)
 			# res.add(sb)
-			if chk_alive(sb):
-				canrsvr.add(sb)
+			if chk_alive(sb.string):
+				canrsvr.add(sb.string)
 			else:
-				cantrsvr.add(sb)
+				cantrsvr.add(sb.string)
 	wf("canrsvr.txt", '\n'.join(canrsvr))
 	wf("cantrsvr.txt", '\n'.join(cantrsvr))
 
@@ -444,7 +470,7 @@ if __name__ == '__main__':
 			subd_fm_ip138(args.subd)
 			subd_fm_chinaz(args.subd)
 			subd_fm_vt(args.subd)
-			subd_fm_tc(args.subd)
+			# subd_fm_tc(args.subd)
 			subd_fm_dnsdb(args.subd)
 			subd_fm_censys(args.subd)
 			subd_fm_crtsh(args.subd)
