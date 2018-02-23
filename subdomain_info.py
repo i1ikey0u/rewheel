@@ -4,7 +4,7 @@
 #code by shuichon
 
 '''
-V2.1
+V2.2
 '''
 
 import argparse, sys, re, os
@@ -39,6 +39,7 @@ def wf(fn, txt):
 
 # OK ip138接口查询IP,便于查找真实IP地址
 def get_ips(domain):
+	ips = []
 	url = "http://site.ip138.com/" + str(domain) + '/'
 	# print(url)
 	page = request.urlopen(url).read().decode('utf-8')
@@ -46,16 +47,49 @@ def get_ips(domain):
 	soup = BeautifulSoup(page, "html.parser")
 	# div = soup.find_all('div', class_="panel")
 	div = soup.find('div', class_="panel")
-	print("发现%i个IP地址：" % len(div))
-	hisaddr = div.find_all('a', target="_blank")
+	curaddr = div.find_all('a', target="+_blank")
+	hisaddr = div.find_all('a', target='_blank')
+	print("发现 %i个IP地址：" % (len(hisaddr)+len(curaddr)))
+	print('当前解析IP：')
+	for ca in curaddr:
+		print(ca.string)
+		ips.append(ca.string)
+	print('历史解析IP：')
 	for ha in hisaddr:
 		print(ha.string)
+		ips.append(ha.string)
+	if len(ips) == 0:
+		return None
+	else:
+		return '\n'.join(ips)
 	print('ip138 IP Done!')
+
+
+# ok 从文件中读取域名，使用ip138接口查询IP并写入文件
+def get_ips_ff(fn='canrsvr.txt'):
+	dips = []
+	f = open(fn, "r", encoding='utf-8')
+	# 把文件对象f当作迭代对象， 系统将自动处理IO缓冲和内存管理
+	for l in f:
+		# print(l)
+		l = l.replace('\n', '')
+		dips.append("============================")
+		dips.append(l)
+		dips.append("----------------------------")
+		rs = get_ips(l)
+		if rs is None:
+			dips.append("无IP解析记录")
+		else:
+			dips.append(rs)
+	f.close()
+	# print(dips)
+	wf('domain_ips.txt', '\n'.join(dips))
+	print('Done!')
 
 # OK ip138接口 查询子域名
 def subd_fm_ip138(target):
 	url = "http://site.ip138.com/" + str(target) + '/domain.htm'
-	# print(url)
+	print(url)
 	req = request.urlopen(url)
 	if req.code != 200:
 		return (req.code)
@@ -68,7 +102,7 @@ def subd_fm_ip138(target):
 	ps = div.find_all('a', target="_blank")
 	print("存在%i个子域名" % len(ps))
 	for sd in ps:
-		print(sd.string)
+		# print(sd.string)
 		if chk_alive(sd.string):
 			canrsvr.add(sd.string)
 		else:
@@ -82,6 +116,7 @@ def subd_fm_ip138(target):
 # OK 站长之家接口
 def subd_fm_chinaz(target):
 	url = "http://tool.chinaz.com/subdomain?domain=" + str(target)
+	print(url)
 	req = request.urlopen(url)
 	if req.code != 200:
 		return (req.code)
@@ -186,6 +221,7 @@ def subd_fm_dnsdb(target):
 
 	wf("canrsvr.txt", '\n'.join(canrsvr))
 	wf("cantrsvr.txt", '\n'.join(cantrsvr))
+	print('dnsdb.org Done!')
 
 
 
@@ -197,7 +233,7 @@ def subd_fm_censys(target):
 	url = 'https://censys.io/certificates?q=' + str(target)
 	url2 = 'https://censys.io/certificates?q=tags%3A%20trusted%20and%20parsed.names%3A%20' + str(target)
 	# page = request.urlopen(url2).read().decode('utf-8')
-	# print(page)
+	print(url2)
 	req = request.urlopen(url2)
 	if req.code != 200:
 		return (req.code)
@@ -271,9 +307,11 @@ def subd_fm_netcraft(target):
 '''
 利用域名证书信息进行收集，首先实现子域名信息收集，后续实现真实IP地址发现
 '''
+
 # OK crt.sh接口
 # 查询qq.com这种有类似泛域名解析的一级域名，结果超大
 def subd_fm_crtsh(target):
+	print('crt.sh')
 	url = "https://crt.sh/?q=%25." + str(target)
 	page = request.urlopen(url).read().decode('utf-8')
 	soup = BeautifulSoup(page, 'html.parser')
@@ -377,10 +415,10 @@ def brp_fm_dnsdb(target):
 	url = "http://www.dnsdb.org/f/" + str(target) + ".dnsdb.org/"
 	for i in range(0, 10):
 		url2 = url + str(i)
-		print(url2)
+		# print(url2)
 		req = request.Request(url2, headers=hd)
 		respn = request.urlopen(req)
-		print(respn.code)
+		# print(respn.code)
 		page = respn.read().decode("utf-8")
 		# print(page)
 		soup = BeautifulSoup(page, "html.parser")
@@ -453,17 +491,19 @@ def parser_error(errmsg):
 
 if __name__ == '__main__':
 	# TODO 可以每个接口返回一个set集合，使用 a | b 求其并集。较小集合大小。
-	res = set()
 	parser = argparse.ArgumentParser()
 	parser.error = parser_error
 	parser._optionals.title = "OPTIONS"
 	parser.add_argument("-ip", help="查询域名解析IP历史")
 	parser.add_argument("-subd", help="查询子域名")
 	parser.add_argument("-brpd", help="使用dnsdb接口暴力猜解子域名")
+	parser.add_argument("-ips", help="从cansvr.txt中遍历获取域名，进行IP查询")
 	args = parser.parse_args()
 	# print(args)
 	if args.ip:
 		get_ips(args.ip)
+	elif args.ips:
+		get_ips_ff(args.ips)
 	elif args.subd:
 		try:
 			print('try')
