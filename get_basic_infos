@@ -1,0 +1,584 @@
+#!/usr/bin/env python
+#coding:utf-8
+#environ: python3 64bit
+#code by shuichon
+
+'''
+V1.0
+'''
+
+import argparse, sys, re, os
+from bs4 import BeautifulSoup
+from urllib import request, parse
+import json
+from http import cookiejar
+import dns.resolver
+import networkx as nx
+import matplotlib.pyplot as plt
+
+
+hd = {
+		'User-Agent': r'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) '
+		              r'Chrome/44.0.2454.85 Safari/537.36 115Browser/6.0.3',
+		'Connection': 'keep-alive',
+		# "Accept-Encoding": "gzip, deflate, br",
+		"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8"
+	}
+
+nameservers = ['119.29.29.29', '182.254.116.116', '223.6.6.6', '8.8.8.8',
+'8.8.4.4', '180.76.76.76',  '1.2.4.8', '210.2.4.8', '101.226.4.6',
+'218.30.118.6', '8.26.56.26', '8.20.247.20']
+
+canrsvr = set()
+cantrsvr = set()
+
+# 写入文件，分别将可解析域名和不可解析写入txt
+def wf(fn, txt):
+	f = open(fn, "a+")
+	f.writelines(txt)
+	f.close()
+
+
+# 获取IP地址对应的物理地址信息
+def get_iplocat(ip):
+	url = 'http://www.ip138.com/ips138.asp?ip=' + str(ip)
+	hd['Accept-Encoding'] = "gzip, deflate"
+	req = request.Request(url, headers=hd)
+	page = request.urlopen(req).read().decode('GBK')
+	# print(page)
+	soup = BeautifulSoup(page, "html.parser")
+	ul = soup.find('ul', class_="ul1")
+	lis = ul.find_all('li')
+	for l in lis:
+		print(l.string)
+
+
+# OK ip138接口查询域名当前和历史解析IP地址信息，返回列表
+def get_ips_fd(domain):
+	car = []
+	har = []
+	print("当前要查询的域名为："+domain)
+	url = "http://site.ip138.com/" + str(domain) + '/'
+	url2 = "http://site.ip138.com/domain/read.do?domain=" + str(domain)
+	page = request.urlopen(url).read().decode('utf-8')
+	page2 = request.urlopen(url2).read().decode('utf-8')
+	pg = json.loads(page2, encoding='utf-8')
+	print('当前解析IP：')
+	for i in pg["data"]:
+		b = i['ip']
+		print(b)
+		print(get_iplocat(b))
+		car.append(b)
+
+	soup = BeautifulSoup(page, "html.parser")
+	div = soup.find('div', class_="panel")
+	hisaddr = div.find_all('a', target='_blank')
+	# print("要检查的域名共发现 %i 个IP地址：" % (len(hisaddr)+len(curaddr)))
+
+	print('历史解析IP：')
+	for ha in hisaddr:
+		print(ha.string)
+		har.append(ha.string)
+		print(get_iplocat(ha.string))
+		# print('该IP绑定过的域名如下：')
+		# 暂时取消该功能
+		# get_d_fip(ha.string)
+	return list(car+har)
+	print('Done!')
+
+# ok 从文件中读取域名，使用ip138接口查询IP并写入文件
+def get_ips_ff(fn='canrsvr.txt'):
+	dips = []
+	f = open(fn, "r", encoding='utf-8')
+	# 把文件对象f当作迭代对象， 系统将自动处理IO缓冲和内存管理
+	for l in f:
+		# print(l)
+		l = l.replace('\n', '')
+		dips.append("============================")
+		dips.append(l)
+		dips.append("----------------------------")
+		rs = get_ips(l)
+		if rs is None:
+			dips.append("无IP解析记录")
+		else:
+			dips.append(rs)
+	f.close()
+	# print(dips)
+	wf('domain_ips.txt', '\n'.join(dips))
+	print('Done!')
+
+# OK ip138接口 查询子域名
+def subd_fm_ip138(target):
+	url = "http://site.ip138.com/" + str(target) + '/domain.htm'
+	print(url)
+	req = request.urlopen(url)
+	if req.code != 200:
+		return (req.code)
+	page = req.read().decode('utf-8')
+	# print(page)
+	soup = BeautifulSoup(page, "html.parser")
+	# div = soup.find_all('div', class_="panel")
+	div = soup.find('div', class_="panel")
+	# print(div)
+	ps = div.find_all('a', target="_blank")
+	print("存在%i个子域名" % len(ps))
+	for sd in ps:
+		# print(sd.string)
+		if chk_alive(sd.string):
+			canrsvr.add(sd.string)
+		else:
+			cantrsvr.add(sd.string)
+			# print(sd.string)
+	wf("canrsvr.txt", '\n'.join(canrsvr))
+	wf("cantrsvr.txt", '\n'.join(cantrsvr))
+	print('ip138 done!')
+
+
+# OK 站长之家接口
+def subd_fm_chinaz(target):
+	url = "http://tool.chinaz.com/subdomain?domain=" + str(target)
+	print(url)
+	req = request.urlopen(url)
+	if req.code != 200:
+		return (req.code)
+	page = req.read().decode('utf-8')
+	soup = BeautifulSoup(page, "html.parser")
+	ul = soup.find("ul", class_="ResultListWrap")
+	if ul is None:
+		print("没有查询到相关的子域名")
+		return None
+	us = ul.find_all("a")
+	for a in us:
+		print(a.string)
+		if chk_alive(a.string):
+			canrsvr.add(a.string)
+		else:
+			cantrsvr.add(a.string)
+	wf("canrsvr.txt", '\n'.join(canrsvr))
+	wf("cantrsvr.txt", '\n'.join(cantrsvr))
+	print('Chinaz Done!')
+
+# OK virustotal接口
+def subd_fm_vt(target):
+	url = "https://www.virustotal.com/ui/domains/" + str(target) + "/subdomains"
+	url2 = "https://www.virustotal.com/ui/domains/" + str(target) + "/subdomains?cursor=STEwCi4%3D"
+	print(url)
+	req = request.urlopen(url)
+	if req.code != 200:
+		return (req.code)
+	page = req.read().decode('utf-8')
+	# print(page)
+	pg = json.loads(page, encoding='utf-8')
+	# print(pg)
+	for i in range(len(pg["data"])):
+		# print("打印前10个子域名：")
+		sb = pg["data"][i]['id']
+		# print(sb)
+		if chk_alive(sb):
+			canrsvr.add(sb)
+		else:
+			cantrsvr.add(sb)
+
+	req = request.urlopen(url2)
+	if req.code != 200:
+		return (req.code)
+	page2 = req.read().decode('utf-8')
+	pg2 = json.loads(page2, encoding='utf-8')
+	# print(len(pg2["data"]))
+	for i in range(len(pg2["data"])):
+		# print("打印剩余子域名：")
+		# print(pg2["data"][i]['id'])
+		sb = pg2["data"][i]['id']
+		if chk_alive(sb):
+			canrsvr.add(sb)
+		else:
+			cantrsvr.add(sb)
+
+	wf("canrsvr.txt", '\n'.join(canrsvr))
+	wf("cantrsvr.txt", '\n'.join(cantrsvr))
+	print('Virustotal Done!')
+
+
+# #threatcrowd威胁情报接口,
+# TODO 需要解决CloudFlare DDOS防护
+def subd_fm_tc(target):
+	url = "https://disqus.com/api/3.0/discovery/listTopPost.json?thread=6100104160&thread=6101359458&thread=6176664485&thread=6178793347&thread=6198134280&thread=6203325891&thread=6273540066&thread=6427423066&api_key=E8Uh5l5fHZ6gD8U3KycjAIAk46f68Zw7C6eW8WSjZvCLXebZ7p0r1yrYDrLilk2F"
+	url2 = "https://www.threatcrowd.org/searchApi/v2/domain/report/?domain=" + str(target)
+	# req = request.Request(url2, headers=hd)
+	# respn = request.urlopen(req)
+	# page = respn.read().decode("utf-8")
+	page = request.urlopen(url2).read().decode("utf-8")
+	print(page)
+	pg = json.loads(page, encoding='utf-8')
+	print(pg["subdomains"])
+
+
+# OK 使用dnsdb.org接口进行查询，只能获取10个内的子域名
+def subd_fm_dnsdb(target):
+	print('dnsdb.org')
+	url = "https://www.robtex.com/dns-lookup/" + str(target)
+	req = request.Request(url, headers=hd)
+	respn = request.urlopen(req)
+	if respn.code != 200:
+		return (respn.code)
+	page = respn.read().decode("utf-8")
+	# print(page)
+	soup = BeautifulSoup(page, "html.parser")
+	h3 = soup.find('h3', text="Subdomains/Hostnames")
+	cite = h3.parent.next_sibling
+	# print(cite)
+	for c in cite.find_all("cite"):
+		# print(c.text)
+		sb = c.text
+		if chk_alive(sb):
+			canrsvr.add(sb)
+		else:
+			cantrsvr.add(sb)
+
+	wf("canrsvr.txt", '\n'.join(canrsvr))
+	wf("cantrsvr.txt", '\n'.join(cantrsvr))
+	print('dnsdb.org Done!')
+
+
+# censys接口
+# TODO： 很难连接成功，无法获取返回页面，并且有访问限制
+# TODO WARNING: Censys only allows 25 queries per day
+# Tips：censys接口内的证书信息内，有IP地址信息，可以用于探测真实IP地址
+def subd_fm_censys(target):
+	url = 'https://censys.io/certificates?q=' + str(target)
+	url2 = 'https://censys.io/certificates?q=tags%3A%20trusted%20and%20parsed.names%3A%20' + str(target)
+	# page = request.urlopen(url2).read().decode('utf-8')
+	print(url2)
+	req = request.urlopen(url2)
+	if req.code != 200:
+		return (req.code)
+	page = req.read().decode('utf-8')
+	soup = BeautifulSoup(page, 'html.parser')
+	# div = soup.find_all('div', id="resultset", class_="results")
+	sdiv = soup.find_all('div', class_="results-metadata")
+	# print(len(sdiv))
+	for d in sdiv:
+		sbi = d.find_all('span')
+		sb = sbi[3]
+		# print(sb)
+		if chk_alive(sb):
+			canrsvr.add(sb)
+		else:
+			cantrsvr.add(sb)
+
+	wf("canrsvr.txt", '\n'.join(canrsvr))
+	wf("cantrsvr.txt", '\n'.join(cantrsvr))
+	print('Censys Done!')
+
+
+
+# OK netcraft接口，最多返回500个
+def subd_fm_netcraft(target):
+	print('netcraft')
+	rs = []
+	url = 'https://searchdns.netcraft.com/?restriction=site+contains&host=' + str(target)
+	req = request.Request(url, headers=hd)
+	page = request.urlopen(req).read().decode('utf-8')
+	# print(page)
+	soup = BeautifulSoup(page, 'html.parser')
+	num = soup.find('em')
+	# print(num.string)
+	l = re.compile('\d{1,9}').findall(num.string)
+	# print(l)
+	tbl = soup.find('table', class_="TBtable")
+	# print(len(tb))
+	td = tbl.find_all('a', rel='nofollow')
+	for sb in td:
+		# print(sb.text)
+		rs.append(sb.text)
+
+	while len(rs) < int(l[0]):
+		print(rs[len(rs)-1])
+		url2 = 'https://searchdns.netcraft.com/?restriction=site+contains&host=' + str(target) + '&last=' + rs[len(rs)-1] +'&from=' + str(len(rs) + 1)
+		req = request.Request(url2, headers=hd)
+		page2 = request.urlopen(req).read().decode('utf-8')
+		soup = BeautifulSoup(page2, 'html.parser')
+		tbl = soup.find('table', class_="TBtable")
+		td = tbl.find_all('a', rel='nofollow')
+		for sb in td:
+			# print(sb.text)
+			rs.append(sb.text)
+	# print(rs)
+	# 将数组转为res set集合
+	res = set(rs)
+	# print(res)
+	for r in res:
+		if chk_alive(r):
+			canrsvr.add(r)
+		else:
+			cantrsvr.add(r)
+
+	wf("canrsvr.txt", '\n'.join(canrsvr))
+	wf("cantrsvr.txt", '\n'.join(cantrsvr))
+	print('Netcraft Done!')
+
+
+'''
+利用域名证书信息进行收集，首先实现子域名信息收集，后续实现真实IP地址发现
+'''
+
+# OK crt.sh接口
+# 查询qq.com这种有类似泛域名解析的一级域名，结果超大
+def subd_fm_crtsh(target):
+	print('crt.sh')
+	url = "https://crt.sh/?q=%25." + str(target)
+	page = request.urlopen(url).read().decode('utf-8')
+	soup = BeautifulSoup(page, 'html.parser')
+	# case1
+	# to = soup.find_all('td', class_="outer")
+	# print(len(to))
+	# td = to[1].find_all('td', attrs={'style': False}, text=re.compile(target+'$'))
+	# for sb in td:
+	# 	print(sb.string)
+	# case2
+	pat = re.compile('<TD>' + '(.*?' + target + ')</TD>')
+	sbs = pat.findall(page)
+	for sb in sbs:
+		# res.add(sb)
+		if chk_alive(sb):
+			canrsvr.add(sb)
+		else:
+			cantrsvr.add(sb)
+	wf("canrsvr.txt", '\n'.join(canrsvr))
+	wf("cantrsvr.txt", '\n'.join(cantrsvr))
+	print('Crt.sh Done!')
+
+
+
+# OK dnsdumpster接口
+def subd_fm_dnsdumpster(target):
+	url = 'https://dnsdumpster.com/'
+	req = request.Request(url, headers=hd)
+	p = request.urlopen(req)
+	cj = cookiejar.CookieJar()
+	opr = request.build_opener(request.HTTPCookieProcessor(cj))
+	opr.open(req)
+	# print(rsp.info, rsp.read)
+	# print(cj)
+	for i in cj:
+		if i.name == 'csrftoken':
+			csrft = i.value
+			# print(csrft)
+	dt = {
+		'csrfmiddlewaretoken': csrft,
+		'targetip': target
+	}
+	dat = parse.urlencode(dt).encode('utf-8')
+
+	hd2 = {
+		'User-Agent': r'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) '
+		              r'Chrome/44.0.2454.85 Safari/537.36 115Browser/6.0.3',
+		'Host': 'dnsdumpster.com',
+		'Content-Type': 'application/x-www-form-urlencoded',
+		"Referer": "https://dnsdumpster.com/",
+		"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8"
+	}
+
+	req2 = request.Request(url, data=dat, headers=hd2, method='POST')
+	rsp = opr.open(req2)
+	# print(rsp.info())
+	page2 = rsp.read().decode('utf-8')
+	# print(page2)
+
+	soup = BeautifulSoup(page2, 'html.parser')
+	div = soup.find_all('div', class_="table-responsive", style="text-align: left;")
+	# print(len(div))
+	sbd = div[3].find_all('td', class_="col-md-4")
+	# print(len(sbd))
+	for s in sbd:
+		sb = s.text.replace('\n', '')
+		print(sb)
+		if chk_alive(sb):
+			canrsvr.add(sb)
+		else:
+			cantrsvr.add(sb)
+
+	wf("canrsvr.txt", '\n'.join(canrsvr))
+	wf("cantrsvr.txt", '\n'.join(cantrsvr))
+
+	# print(res)
+	# IP信息
+	# ips = sbd = soup.find_all('td', class_="col-md-3")
+	# print(len(ips))
+	print('Dnsdumpster Done!')
+
+
+
+# 使用dnsdb接口，遍历猜解子域名
+def brp_fm_dnsdb(target):
+	url = "http://www.dnsdb.org/f/" + str(target) + ".dnsdb.org/"
+	for i in range(0, 10):
+		url2 = url + str(i)
+		# print(url2)
+		req = request.Request(url2, headers=hd)
+		respn = request.urlopen(req)
+		# print(respn.code)
+		page = respn.read().decode("utf-8")
+		# print(page)
+		soup = BeautifulSoup(page, "html.parser")
+		sbs = soup.find_all('a')
+		for sb in sbs:
+			# print(sb.string)
+			# res.add(sb)
+			if chk_alive(sb.string):
+				canrsvr.add(sb.string)
+			else:
+				cantrsvr.add(sb.string)
+	# print(canrsvr, cantrsvr)
+	wf("canrsvr.txt", '\n'.join(canrsvr))
+	wf("cantrsvr.txt", '\n'.join(cantrsvr))
+
+	for i in range(97, 123):
+		url2 = url + chr(i)
+		print(url2)
+		req = request.Request(url2, headers=hd)
+		respn = request.urlopen(req)
+		print(respn.code)
+		page = respn.read().decode("utf-8")
+		# print(page)
+		soup = BeautifulSoup(page, "html.parser")
+		sbs = soup.find_all('a')
+		for sb in sbs:
+			# print(sb.string)
+			# res.add(sb)
+			if chk_alive(sb.string):
+				canrsvr.add(sb.string)
+			else:
+				cantrsvr.add(sb.string)
+	wf("canrsvr.txt", '\n'.join(canrsvr))
+	wf("cantrsvr.txt", '\n'.join(cantrsvr))
+
+
+# 检测域名存活
+def chk_alive(target):
+	# print('查看是否可以解析为IP及IP是否存活')
+	# case1
+	# req = dns.resolver.query(target)
+	# # rsp = req.response.answer
+	# for s in req.response.answer:
+	# 	for j in s.items:
+	# 		print(j)
+			# if isinstance(j, dns.rdtypes.IN.A.A):
+			# 	print('\t %s' % (j.address))
+			# if isinstance(j, dns.rdtypes.ANY.CNAME.CNAME):
+			# 	print('CNAME: %s' % (j))
+
+	# case2
+	rsvr = dns.resolver.Resolver()
+	rsvr.nameservers = nameservers
+	rsp = rsvr.query(target).response
+	if rsp == dns.resolver.NoAnswer:
+		print(dns.resolver.NoAnswer)
+		return False
+	else:
+		# print(rsp)
+		return True
+
+
+# 查询IP当前及历史绑定的域名,返回列表
+def get_d_fip(ip):
+	dm = []
+	url = "http://site.ip138.com/" + str(ip) + '/'
+	req = request.urlopen(url)
+	if req.code != 200:
+		return (req.code)
+	page = req.read().decode('utf-8')
+	soup = BeautifulSoup(page, "html.parser")
+	# 部分情况下，div的class会变化名字
+	div = soup.find('div', class_=['result result2', 'result result3'])
+	dms = div.find_all('a', target="_blank")
+	if len(dms) == 0:
+		dm.append('暂无绑定域名')
+	else:
+		for d in dms:
+			dm.append(d.string)
+	print(dm)
+	return dm
+
+
+# 单域名查询数据分析展示
+def rst_show(d):
+	G = nx.Graph()
+	# 创建有向图，暂未show
+	DG = nx.DiGraph()
+	iplist = get_ips_fd(d)
+	for i in iplist:
+		G.add_edge(d, i)
+		DG.add_edge(d, i)
+		dlit = get_d_fip(i)[1:]
+		for dm in dlit:
+			G.add_edge(i, dm)
+			DG.add_edge(i, dm)
+	# 指定使用 节点排列 形式，还可以指定其他形式
+	pos = nx.spring_layout(G)
+	nx.draw_networkx_nodes(G, pos, node_size=20)
+	nx.draw_networkx_edges(G, pos)
+	nx.draw_networkx_labels(G, pos)
+	plt.show()
+
+# 单IP查询及展示，暂时没有什么实际作用
+def rst_showip(ip):
+	Gip = nx.Graph()
+	dms = get_d_fip(ip)
+	for i in dms:
+		Gip.add_edge(ip, i)
+	# 使用 同心圆方式 分布
+	pos = nx.shell_layout(Gip)
+	nx.draw_networkx_nodes(Gip, pos, node_size=20)
+	nx.draw_networkx_edges(Gip, pos)
+	nx.draw_networkx_labels(Gip, pos)
+	plt.show()
+
+
+def parser_error(errmsg):
+	print("Usage: py -3" + sys.argv[0] + " [Options] use -h for help")
+	print("Error: " + errmsg)
+	sys.exit()
+
+
+if __name__ == '__main__':
+	parser = argparse.ArgumentParser()
+	parser.error = parser_error
+	parser._optionals.title = "OPTIONS"
+	parser.add_argument("-d", help="查询域名的当前及历史解析IP记录")
+	parser.add_argument("-shwip", help="查询给定的单个域名，并展示综合查询结果")
+	parser.add_argument("-ip", help="查询某个IP当前及历史绑定的域名")
+	parser.add_argument("-shwd", help="查询给定的单个域名，并展示综合查询结果")
+	parser.add_argument("-subd", help="获取给定根域名的子域名")
+	parser.add_argument("-brpd", help="使用dnsdb接口暴力猜解子域名")
+	parser.add_argument("-df", help="从cansvr.txt中遍历获取域名，查询解析IP记录")
+	args = parser.parse_args()
+	# print(args)
+	if args.d:
+		get_ips_fd(args.d)
+	elif args.df:
+		get_ips_ff(args.df)
+	elif args.subd:
+		try:
+			print('try')
+			subd_fm_ip138(args.subd)
+			subd_fm_chinaz(args.subd)
+			subd_fm_vt(args.subd)
+			# subd_fm_tc(args.subd)
+			subd_fm_dnsdb(args.subd)
+			subd_fm_censys(args.subd)
+			subd_fm_crtsh(args.subd)
+			subd_fm_netcraft(args.subd)
+			subd_fm_dnsdumpster(args.subd)
+			# chk_alive(args.subd)
+		except Exception as e:
+			print(e)
+	elif args.brpd:
+		try:
+			brp_fm_dnsdb(args.brpd)
+		except Exception as e:
+			print(e)
+	else:
+		parser_error()
+		print('None!')
+
